@@ -1,0 +1,324 @@
+---
+title: "Real Estate Sales Price Prediction"
+author: "Eric Peterson"
+date: "July 18, 2017"
+output: 
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Overview
+
+Real estate sales price prediction is a hot topic in the field. Driven by the desire for an automated method of estimating home prices, companies such as Zillow, Trulia (now a subsidiary of Zillow), and the National Association of Realtors (NAR), have pursued models that tackle this problem. AVM (automated valuation models) are also prevalent in large scale real estate operations, particularly when dealing with bank owned foreclosures.
+
+This project is an investigation into utilizing machine learning techniques to better predict home prices using the Ames Housing dataset (provided by Kaggle.com).
+
+## Training and Test Data
+
+Assuming the proper data files are in the working directory, we can load the already fairly clean data sets into R as data frames easily.
+```{r Ames Housing Data, warning = FALSE, message = FALSE}
+library(dplyr)
+library(ggplot2)
+library(Hmisc)
+library(caret)
+training <- read.csv("train.csv")
+```
+
+## Cleaning the Data Set
+Now, we need to dig into the features a little and see if we can't determine what we need to adjust and how we are going to deal with missing values.
+
+```{r Names}
+names(training)
+```
+
+First, we take a look at the features themselves (using the training set). There are 81 columns, including the Sales Price, which is what we're building a model to predict. That means we have 80 features to build our model from.
+
+```{r Structure}
+str(training)
+```
+
+That's a little long, but we can already get a feel for the data we're dealing with. One good thing is that some of the data is already set up as factors, which makes life a bit easier. We can also already see that we've got some missing values. We'll need to address those first, before we can build our model. Let's look at one more thing.
+
+```{r Summary}
+summary(training)
+```
+
+Immediately, we can see that a lot of the missing values are probably linked to the absence of another feature, such as alley access, a garage, or a basement (this is also reflected in the data code book). We'll want to create a factor level that corresponds to None (or not applicable) for those cases. In this case, I'll show one and do the rest with echo off.
+
+```{r Data Cleaning}
+new_levels <- levels(training$Alley)
+new_levels[length(new_levels)+1] <- "NA"
+training$Alley <- factor(training$Alley, levels = new_levels)
+training$Alley[is.na(training$Alley)] <- "NA"
+```
+
+```{r More Cleaning, echo=FALSE}
+training$MasVnrType[is.na(training$MasVnrType)] <- "None"
+
+new_levels <- levels(training$BsmtQual)
+new_levels[length(new_levels)+1] <- "NA"
+training$BsmtQual <- factor(training$BsmtQual, levels = new_levels)
+training$BsmtQual[is.na(training$BsmtQual)] <- "NA"
+
+new_levels <- levels(training$BsmtCond)
+new_levels[length(new_levels)+1] <- "NA"
+training$BsmtCond <- factor(training$BsmtCond, levels = new_levels)
+training$BsmtCond[is.na(training$BsmtCond)] <- "NA"
+
+new_levels <- levels(training$BsmtExposure)
+new_levels[length(new_levels)+1] <- "NA"
+training$BsmtExposure <- factor(training$BsmtExposure, levels = new_levels)
+training$BsmtExposure[is.na(training$BsmtExposure)] <- "NA"
+
+new_levels <- levels(training$BsmtFinType1)
+new_levels[length(new_levels)+1] <- "NA"
+training$BsmtFinType1 <- factor(training$BsmtFinType1, levels = new_levels)
+training$BsmtFinType1[is.na(training$BsmtFinType1)] <- "NA"
+
+new_levels <- levels(training$BsmtFinType2)
+new_levels[length(new_levels)+1] <- "NA"
+training$BsmtFinType2 <- factor(training$BsmtFinType2, levels = new_levels)
+training$BsmtFinType2[is.na(training$BsmtFinType2)] <- "NA"
+
+training$Electrical[is.na(training$Electrica)] <- "SBrkr"
+
+new_levels <- levels(training$FireplaceQu)
+new_levels[length(new_levels)+1] <- "NA"
+training$FireplaceQu <- factor(training$FireplaceQu, levels = new_levels)
+training$FireplaceQu[is.na(training$FireplaceQu)] <- "NA"
+
+new_levels <- levels(training$GarageType)
+new_levels[length(new_levels)+1] <- "NA"
+training$GarageType <- factor(training$GarageType, levels = new_levels)
+training$GarageType[is.na(training$GarageType)] <- "NA"
+
+new_levels <- levels(training$GarageFinish)
+new_levels[length(new_levels)+1] <- "NA"
+training$GarageFinish <- factor(training$GarageFinish, levels = new_levels)
+training$GarageFinish[is.na(training$GarageFinish)] <- "NA"
+
+new_levels <- levels(training$GarageQual)
+new_levels[length(new_levels)+1] <- "NA"
+training$GarageQual <- factor(training$GarageQual, levels = new_levels)
+training$GarageQual[is.na(training$GarageQual)] <- "NA"
+
+new_levels <- levels(training$GarageCond)
+new_levels[length(new_levels)+1] <- "NA"
+training$GarageCond <- factor(training$GarageCond, levels = new_levels)
+training$GarageCond[is.na(training$GarageCond)] <- "NA"
+
+new_levels <- levels(training$PoolQC)
+new_levels[length(new_levels)+1] <- "NA"
+training$PoolQC <- factor(training$PoolQC, levels = new_levels)
+training$PoolQC[is.na(training$PoolQC)] <- "NA"
+
+new_levels <- levels(training$Fence)
+new_levels[length(new_levels)+1] <- "NA"
+training$Fence <- factor(training$Fence, levels = new_levels)
+training$Fence[is.na(training$Fence)] <- "NA"
+
+new_levels <- levels(training$MiscFeature)
+new_levels[length(new_levels)+1] <- "NA"
+training$MiscFeature <- factor(training$MiscFeature, levels = new_levels)
+training$MiscFeature[is.na(training$MiscFeature)] <- "NA"
+```
+
+With that taken care of, we can look at the other features that have missing data.
+
+```{r Other Missing Data}
+colSums(sapply(training, is.na))
+```
+
+So, we have 3 features with missing values left, LotFrontage, MasVnrArea (the area of a masonry veneer), and GarageYrBlt. Two of these are easy to explain, 8 homes probably have no veneer and 81 have no garage, so we can justify setting these to 0. Lot Frontage is interesting, but, even here, we're probably dealing with condominiums and/or town houses that have minimal to no frontage, so we're going to set those to 0 as well (alternately, we could impute the data in some way).
+
+```{r Zero Out Missing Data}
+training$GarageYrBlt[is.na(training$GarageYrBlt)] <- 0
+training$MasVnrArea[is.na(training$MasVnrArea)] <- 0
+training$LotFrontage[is.na(training$LotFrontage)] <- 0
+```
+
+Our data is now free of missing values. We may decide to do more to it, but that will be after some analysis.
+
+## Exploritory Analysis of the Data Set
+
+Let's look at some correlations. This will give us some idea of where we have features that are linked in some way and also give us some insight into what features have the greatest effect on the sales price.
+
+```{r Correlations, fig.width = 12, fig.height = 12,warning = FALSE, message = FALSE}
+library(corrplot)
+# find numeric columns in the data frame and store in logical
+num_cols <- sapply(training, is.numeric)
+
+#select out the numeric columns
+num_train <- training[ , num_cols]
+
+#find and plot the correlation matrix
+correlations <- cor(num_train, use = "everything")
+corrplot(correlations, method = "square")
+```
+
+We immediately see some interesting things. First off, we see some features that correlate highly. Most are intuitive, as we see with Garage Area and Number of Cars and living area.
+
+```{r Living Area Plot, fig.width = 12, fig.height = 12, warning = FALSE, message = FALSE}
+library(gridExtra)
+
+g1 <- qplot(GrLivArea, X1stFlrSF, data = training, geom = c("point", "smooth"), method = "lm", xlab = "Above Ground Living Area", ylab = "1st Floor Square Footage")
+
+g2 <- qplot(GrLivArea, X2ndFlrSF, data = training, geom = c("point", "smooth"), method = "lm", xlab = "Above Ground Living Area", ylab = "2nd Floor Square Footage")
+
+g3 <- qplot(GarageArea, GarageCars, data = training, geom = c("point", "smooth"), method = "lm", xlab = "Garage Area", ylab = "Number of Cars")
+
+g4 <- qplot(YearBuilt, OverallQual, data = training, geom = c("point", "smooth"), method = "lm", xlab = "Year Built", ylab = "Overall Quality")
+
+grid.arrange(g1, g2, g3, g4, ncol = 2)
+
+```
+It's clear that as the garage area increases, the number of cars tends to as well. We illustrate it with a simple linear fit that only starts to break down at the extremes when there are few samples.
+
+Living area is a little more interesting. There's clearly a split in the data, although it's fairly easy to explain. Some houses are only one floor, so the 1st Floor Area will be the same as the Above Ground Living Area. Similarly, if the house only has one floor, 2nd Floor Area will be 0. Since both of these values track very closely with total above ground living area, we can make an argument to condense or eliminate them when we build our model. 
+
+Year and overall quality are also correlated, although a bit weaker than the others. Let's look at some of our features that correlate highly with the sales price.
+
+```{r Overall Quality, fig.width = 12, fig.height = 12}
+#use Cut2() from Hmisc to cut numerical features into bins
+cutQual <- cut2(training$OverallQual, g = 10)
+cutCond <- cut2(training$OverallCond, g = 10)
+cutYear <- cut2(training$YearBuilt, g = 10)
+cutGLA  <- cut2(training$GrLivArea, g = 10)
+
+bp1 <- qplot(cutCond, SalePrice, data = training, fill = cutCond, geom = c("boxplot"))
+
+bp2 <- qplot(cutQual, SalePrice, data = training, fill = cutQual, geom = c("boxplot"))
+
+bp3 <- qplot(cutYear, SalePrice, data = training, fill = cutYear, geom = c("boxplot"))
+
+bp4 <- qplot(cutGLA, SalePrice, data = training, fill = cutGLA, geom = c("boxplot"))
+
+grid.arrange(bp1, bp2, bp3, bp4, ncol = 2)
+```
+
+Surprisingly, overall condition is very poorly correlated to sales price. Looking at the data, most values fall in the 1-6 range, but even accounting for that, there's not a huge effect. This could also be a flaw in the rating system used to determine home condition.
+
+Quality and above ground living area show strong effects while the year built seems to break down in 30 year increments.
+
+One factor variable should also have a fairly large effect on sales price and that's neighborhood. Location is one of the biggest predictors of house pricing.
+
+```{r Neighborhood Boxplot, fig.width = 12, fig.height = 12}
+
+qplot(Neighborhood, SalePrice, data = training, fill = Neighborhood, geom = c("boxplot"))
+
+```
+
+Sure enough, we can see that certain neighborhoods are more expensive than others. Before we put together a model, we want to look at one more thing; the distribution of sales prices.
+
+```{r Sales Price Histogram, fig.width = 12, fig.height = 12}
+
+qplot(SalePrice, data = training, fill = I("blue"), col = I("black"))
+
+```
+
+Looks like the sale prices are skewed. We can address this by taking the log of the price.
+
+```{r Log Sales Price Histogram, fig.width = 12, fig.height = 12}
+
+qplot(log(SalePrice + 1), data = training, fill = I("blue"), col = I("black"))
+
+```
+
+Now we can start looking at models.
+
+```{r Simple Linear Model, warning = FALSE, message = FALSE}
+
+control <- trainControl(method = "cv", number = 10)
+
+lm_model <- train(SalePrice ~ ., method = "lm", data = training, trControl = control)
+
+lm_model$results
+print(lm_model)
+
+lm_fin <- lm_model$finalModel
+
+qplot(lm_fin$fitted, lm_fin$residuals, data = training)
+```
+
+We now have a simple linear model of the data. The Rsquared value isn't terrible, but residuals are high and, as we see from the plot, the fit seems to break down at higher home values, probably in part to the skew we saw in the housing prices. We also used caret to perform a k-fold cross validation with 10 subsets. We could manually separate out a training and test set, but k-fold should give us better results. As you can see from the standard deviations of the RMSE and RSquared, the trade off for k-fold is high variance.
+
+Let's try with log(SalePrice + 1).
+
+```{r Simple Linear Model Predict Log, warning = FALSE, message = FALSE}
+
+
+control <- trainControl(method = "cv", number = 10)
+
+lm_model_log <- train(log(SalePrice + 1) ~ ., method = "lm", data = training, trControl = control)
+
+print(lm_model_log)
+
+lm_model_log$results
+
+lm_l_fin <- lm_model_log$finalModel
+
+qplot(lm_l_fin$fitted, lm_l_fin$residuals, data = training)
+```
+
+Here, model accuracy has improved and variance, while still high, is a little better. We've got some outliers on the low end, but not quite as bad as the high end was for the first model. This is a little tricky, as we did do a data transformation, so comparing values is of limited utility. One thing to note is that we have less residual outliers at the high end now. Let's see what happens if we only use a selection of the data. As we discussed above, we'll only use the data that shows strong correlation to the sales price and throw out redundant data.
+
+```{r Simple Linear Model Less, warning = FALSE, message = FALSE}
+
+
+control <- trainControl(method = "cv", number = 10)
+
+lm_model_log_s <- train(log(SalePrice + 1) ~ OverallQual + YearBuilt + YearRemodAdd + MasVnrArea + TotalBsmtSF + LotArea + GrLivArea + FullBath + Fireplaces + GarageArea + WoodDeckSF + Neighborhood + MiscFeature + PoolQC + GarageQual + GarageCond + GarageType, method = "lm", data = training, trControl = control)
+
+lm_model_log_s$results
+
+print(lm_model_log_s)
+
+lm_ls_fin <- lm_model_log_s$finalModel
+
+qplot(lm_ls_fin$fitted, lm_ls_fin$residuals, data = training)
+```
+
+Our accuracy gets better again while variance drops from the last model (since we used the same transformation, this comparison is much more applicable). That's not a bad trade off and it took less variables to do it. Of course, this is assuming a linear relationship between the features and the Sales Price, which may very well not be the case. With that in mind, let's try something completely different, a random forest model.
+
+```{r Random Forest, warnings = FALSE, message = FALSE}
+library(randomForest)
+
+set.seed(3218)
+control <- trainControl(method = "cv", number = 5)
+
+
+mtry <- sqrt(ncol(training))
+tunegrid <- expand.grid(.mtry = mtry)
+
+rf_model <- train(SalePrice ~., data = training, method = "rf", trControl = control, tuneGrid = tunegrid, prox = TRUE)
+
+rf_fin <- rf_model$finalModel
+print(rf_model)
+
+print(rf_fin)
+
+```
+
+We're using 5 folds in order to speed the calculations up, as random forest takes some processor time. We're restricting it to the square root of the number of features to try at each split. In general, this gives us a more accurate model, which makes sense since we're using a large number of features to make our predictions. Let's see what we get when we use log(SalePrice + 1) as our target.
+
+```{r Random Forest Log, warning = FALSE, message = FALSE}
+set.seed(3218)
+control <- trainControl(method = "cv", number = 5)
+
+
+mtry <- sqrt(ncol(training))
+tunegrid <- expand.grid(.mtry = mtry)
+
+rf_model_l <- train(log(SalePrice + 1) ~., data = training, method = "rf", trControl = control, tuneGrid = tunegrid, prox = TRUE)
+
+rf_l_fin <- rf_model_l$finalModel
+print(rf_model_l)
+
+print(rf_l_fin)
+
+```
+
+So, a mild improvement. Given how robust random forest is for regression, that also makes sense. The next step will be to investigate some other models, choose one, then fine tune that model.
