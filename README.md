@@ -1,2 +1,2 @@
-# datasciencecoursera
-JHU Data Science Class Repository
+# Housing Data Predictions
+Kaggle Housing Data
